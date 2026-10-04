@@ -18,24 +18,37 @@ export default function App() {
       setIsPlaying(playing);
     });
 
-    // Automatically start playing the Happy Birthday tune by default on page load
-    audioController.play().catch(() => {
-      // Browser blocked autoplay without user gesture; listener below handles unlock
+    // 1. Attempt immediate autoplay on mount
+    audioController.unlockAndPlay().catch(() => {
+      // Browser autoplay policy blocked until first user gesture
     });
 
-    // Ensure audio resumes on the very first user interaction if browser suspended it
-    const handleFirstGesture = () => {
-      if (audioController.userHasInteracted) return;
-      audioController.initContext();
+    // 2. Global unlock on ANY user gesture (touch, scroll, click, mouse move, key press)
+    const gestureEvents: (keyof WindowEventMap)[] = [
+      'pointerdown',
+      'touchstart',
+      'click',
+      'keydown',
+      'scroll',
+      'wheel',
+      'pointermove',
+    ];
+
+    const handleFirstGesture = async () => {
+      if (audioController.userExplicitlyPaused) return;
       if (!audioController.getIsPlaying()) {
-        audioController.play().catch(() => {});
+        const ok = await audioController.unlockAndPlay();
+        if (ok) {
+          gestureEvents.forEach((evt) => {
+            window.removeEventListener(evt, handleFirstGesture);
+          });
+        }
       }
     };
 
-    window.addEventListener('pointerdown', handleFirstGesture, { once: true });
-    window.addEventListener('touchstart', handleFirstGesture, { once: true });
-    window.addEventListener('keydown', handleFirstGesture, { once: true });
-    window.addEventListener('click', handleFirstGesture, { once: true });
+    gestureEvents.forEach((evt) => {
+      window.addEventListener(evt, handleFirstGesture, { passive: true });
+    });
 
     // Track scroll to show fixed scroll-to-top button
     const handleScroll = () => {
@@ -57,10 +70,9 @@ export default function App() {
     return () => {
       unsubscribe();
       clearTimeout(timer);
-      window.removeEventListener('pointerdown', handleFirstGesture);
-      window.removeEventListener('touchstart', handleFirstGesture);
-      window.removeEventListener('keydown', handleFirstGesture);
-      window.removeEventListener('click', handleFirstGesture);
+      gestureEvents.forEach((evt) => {
+        window.removeEventListener(evt, handleFirstGesture);
+      });
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
@@ -68,6 +80,12 @@ export default function App() {
   const handleToggleAudio = (e: React.MouseEvent) => {
     e.stopPropagation();
     audioController.togglePlay();
+  };
+
+  const handleBannerPlay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    audioController.userExplicitlyPaused = false;
+    audioController.unlockAndPlay();
   };
 
   const scrollToTop = () => {
@@ -79,7 +97,7 @@ export default function App() {
       {/* Background ambient floating rose petals & embers */}
       <FloatingPetalsCanvas />
 
-      {/* Floating Audio Status Pill */}
+      {/* Floating Audio Status Pill in Top Right */}
       <div className="fixed top-4 right-4 z-40">
         <button
           onClick={handleToggleAudio}
@@ -106,6 +124,19 @@ export default function App() {
           )}
         </button>
       </div>
+
+      {/* If audio is blocked by browser autoplay policy, show a prompt to unlock */}
+      {!isPlaying && !audioController.userExplicitlyPaused && (
+        <div
+          onClick={handleBannerPlay}
+          className="fixed bottom-20 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 cursor-pointer rounded-full border border-[#e0a96d]/60 bg-gradient-to-r from-[#291730]/95 via-[#1a1120]/95 to-[#291730]/95 px-5 py-2.5 shadow-[0_0_30px_rgba(224,169,109,0.35)] backdrop-blur-md transition-all hover:scale-105 active:scale-95 hover:border-[#e0a96d]"
+        >
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm font-medium text-[#fcecd0]">
+            <Volume2 className="h-4 w-4 text-[#e0a96d] animate-pulse" />
+            <span>Tap anywhere to play Happy Birthday song 🎵</span>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="relative z-10 pt-4">

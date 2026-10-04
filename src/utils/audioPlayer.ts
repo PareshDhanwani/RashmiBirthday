@@ -28,7 +28,7 @@ class AudioController {
   private customAudio: HTMLAudioElement | null = null;
   private customAudioSrc: string | null = null;
   private activeOscillators: OscillatorNode[] = [];
-  public userHasInteracted: boolean = false;
+  public userExplicitlyPaused: boolean = false;
 
   public initContext() {
     if (!this.ctx) {
@@ -58,6 +58,10 @@ class AudioController {
     return this.isPlaying;
   }
 
+  public getContextState(): AudioContextState | 'uninitialized' {
+    return this.ctx ? this.ctx.state : 'uninitialized';
+  }
+
   public getCurrentTrack(): SoundTrackId {
     return this.currentTrack;
   }
@@ -85,56 +89,79 @@ class AudioController {
   }
 
   public async togglePlay(): Promise<boolean> {
-    this.userHasInteracted = true;
     if (this.isPlaying) {
-      this.stop();
+      this.stop(true);
       return false;
     } else {
-      await this.play();
-      return true;
+      this.userExplicitlyPaused = false;
+      return await this.unlockAndPlay();
     }
   }
 
-  public async play(): Promise<void> {
+  public async unlockAndPlay(): Promise<boolean> {
+    if (this.userExplicitlyPaused) return false;
     this.initContext();
-    if (!this.ctx || !this.masterGain) return;
+    if (this.ctx && this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        return false;
+      }
+    }
+    return await this.play();
+  }
+
+  public async play(): Promise<boolean> {
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return false;
 
     if (this.ctx.state === 'suspended') {
       try {
         await this.ctx.resume();
       } catch {
-        // Handled
+        // Autoplay policy prevented resume
       }
     }
-
-    // Restore volume
-    this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
-    this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
 
     if (this.customAudio && this.customAudioSrc) {
       try {
         await this.customAudio.play();
         this.isPlaying = true;
         this.notify();
-        return;
+        return true;
       } catch {
         // Fallback to synth
       }
     }
 
-    this.isPlaying = true;
-    this.notify();
+    if (this.ctx.state === 'running') {
+      // Restore volume
+      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
 
-    // Clear any previous loop
-    if (this.timerId !== null) {
-      window.clearInterval(this.timerId);
-      this.timerId = null;
+      this.isPlaying = true;
+      this.notify();
+
+      // Clear any previous loop
+      if (this.timerId !== null) {
+        window.clearInterval(this.timerId);
+        this.timerId = null;
+      }
+
+      this.startSynthesizedMusic();
+      return true;
+    } else {
+      // Browser autoplay policy prevented starting sound until first gesture
+      this.isPlaying = false;
+      this.notify();
+      return false;
     }
-
-    this.startSynthesizedMusic();
   }
 
-  public stop(): void {
+  public stop(userAction: boolean = false): void {
+    if (userAction) {
+      this.userExplicitlyPaused = true;
+    }
     this.isPlaying = false;
 
     // Immediately stop & disconnect all currently scheduled/running oscillators
