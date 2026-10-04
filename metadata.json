@@ -1,0 +1,6 @@
+{
+  "name": "Happy Birthday Rashmi | A Celebration of Love",
+  "description": "An elegant, interactive birthday celebration dedicated to Rashmi with heartfelt wishes, memory gallery, ambient music, confetti, and a personalized digital gift box.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
